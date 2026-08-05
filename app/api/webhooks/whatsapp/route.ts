@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { validateTwilioSignature } from "@/services/twilio";
 import { processInboundWhatsApp } from "@/services/whatsapp";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { getAppUrl } from "@/lib/env";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
@@ -27,9 +28,12 @@ export async function POST(request: Request) {
     });
 
     const signature = request.headers.get("x-twilio-signature");
-    const proto = request.headers.get("x-forwarded-proto") ?? "https";
-    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "localhost:3000";
-    const url = `${proto}://${host}/api/webhooks/whatsapp`;
+    const appUrl = getAppUrl();
+    const isLocal = appUrl.includes("localhost") || appUrl.includes("127.0.0.1");
+    const baseUrl = isLocal
+      ? `${request.headers.get("x-forwarded-proto") ?? "https"}://${request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "localhost:3000"}`
+      : appUrl;
+    const url = `${baseUrl}/api/webhooks/whatsapp`;
 
     if (!validateTwilioSignature(url, params, signature)) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
