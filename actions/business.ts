@@ -16,6 +16,7 @@ import {
 } from "@/lib/product-images";
 import { Role, Prisma } from "@prisma/client";
 import { abandonEmptyShellShopsForUser } from "@/lib/empty-shop";
+import { notifyOwnerOfSale } from "@/services/whatsapp";
 
 export async function createBusiness(formData: FormData) {
   try {
@@ -772,6 +773,12 @@ export async function createSale(data: {
 
       return newSale;
     });
+
+    notifyOwnerOfSale(ctx.businessId, {
+      total: Number(sale.total),
+      paymentMethod: sale.paymentMethod,
+      itemCount: sale.items.length,
+    }).catch((err) => console.error("[notifyOwnerOfSale]", err));
 
     revalidatePath("/sales");
     revalidatePath("/sales/history");

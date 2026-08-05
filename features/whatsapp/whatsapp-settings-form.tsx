@@ -24,6 +24,7 @@ export function WhatsAppSettingsForm({
   const [copied, setCopied] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(config.isEnabled);
   const [autoReply, setAutoReply] = useState(config.autoReplyEnabled);
+  const [saleAlerts, setSaleAlerts] = useState(config.saleAlertsEnabled);
 
   function copyText(text: string, key: string) {
     navigator.clipboard.writeText(text);
@@ -36,6 +37,7 @@ export function WhatsAppSettingsForm({
     const formData = new FormData(e.currentTarget);
     formData.set("isEnabled", String(enabled));
     formData.set("autoReplyEnabled", String(autoReply));
+    formData.set("saleAlertsEnabled", String(saleAlerts));
     startTransition(async () => {
       await updateWhatsAppConfig(formData);
     });
@@ -104,6 +106,43 @@ export function WhatsAppSettingsForm({
               />
             </button>
           </div>
+
+          <div className="flex items-center justify-between rounded-xl surface-muted p-4">
+            <div>
+              <p className="font-medium text-sm">Sale alerts</p>
+              <p className="text-xs text-muted-foreground">
+                Get a WhatsApp message every time a POS sale completes
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={saleAlerts}
+              onClick={() => setSaleAlerts(!saleAlerts)}
+              className={`relative h-7 w-12 rounded-full transition-colors ${
+                saleAlerts ? "bg-biz-emerald" : "bg-gray-300"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+                  saleAlerts ? "translate-x-5" : ""
+                }`}
+              />
+            </button>
+          </div>
+
+          {saleAlerts && (
+            <div className="space-y-2">
+              <Label htmlFor="ownerAlertPhone">Send sale alerts to</Label>
+              <Input
+                id="ownerAlertPhone"
+                name="ownerAlertPhone"
+                type="tel"
+                defaultValue={config.ownerAlertPhone ?? ""}
+                placeholder="+234 800 000 0000"
+              />
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="whatsappNumber">Your shop WhatsApp number</Label>

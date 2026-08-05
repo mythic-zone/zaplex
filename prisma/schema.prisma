@@ -106,6 +106,14 @@ enum WhatsAppMessageStatus {
   FAILED
 }
 
+enum WhatsAppDraftStatus {
+  COLLECTING
+  AWAITING_CONFIRMATION
+  COMMITTED
+  CANCELLED
+  EXPIRED
+}
+
 model Business {
   id        String   @id @default(cuid())
   name      String
@@ -137,6 +145,7 @@ model Business {
   healthScores   BusinessHealthScore[]
   whatsappConfig WhatsAppConfig?
   whatsappMessages WhatsAppMessage[]
+  whatsappInventoryDrafts WhatsAppInventoryDraft[]
   aiPromptLogs   AiPromptLog[]
   receiptCounters ReceiptCounter[]
   restaurantSettings RestaurantSettings?
@@ -206,6 +215,10 @@ model Membership {
   role              Role     @default(STAFF)
   /// When set (array of section ids), replaces role-based page access for this member.
   sectionOverrides  Json?
+  /// Self-service WhatsApp number for this member, used to authorize the
+  /// WhatsApp inventory assistant. Normalized E.164; unique so an inbound
+  /// message resolves to exactly one business.
+  phone             String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -213,6 +226,7 @@ model Membership {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([userId, businessId])
+  @@unique([phone])
   @@index([businessId])
   @@map("memberships")
 }
@@ -613,16 +627,19 @@ model AuditLog {
 }
 
 model WhatsAppConfig {
-  id               String   @id @default(cuid())
-  businessId       String   @unique
-  isEnabled        Boolean  @default(false)
-  whatsappNumber   String?
-  twilioNumber     String?
-  businessCode     String?  @unique
-  greetingMessage  String?
-  autoReplyEnabled Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                String   @id @default(cuid())
+  businessId        String   @unique
+  isEnabled         Boolean  @default(false)
+  whatsappNumber    String?
+  twilioNumber      String?
+  businessCode      String?  @unique
+  greetingMessage   String?
+  autoReplyEnabled  Boolean  @default(true)
+  /// Phone number that receives WhatsApp alerts when a POS sale completes.
+  ownerAlertPhone   String?
+  saleAlertsEnabled Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -640,6 +657,12 @@ model WhatsAppMessage {
   customerPhone String?
   aiResponse    String?
   status        WhatsAppMessageStatus    @default(RECEIVED)
+  /// Public URL of the stored inbound media (invoice photo / voice note), if any.
+  mediaUrl      String?
+  /// MIME type of the inbound media, e.g. image/jpeg, audio/ogg.
+  mediaType     String?
+  /// "customer" (shop-inquiry bot) or "manager_inventory" (AI inventory assistant).
+  intent        String?
   createdAt     DateTime                 @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -647,6 +670,30 @@ model WhatsAppMessage {
   @@index([businessId, createdAt])
   @@index([customerPhone])
   @@map("whatsapp_messages")
+}
+
+/// Short-lived session memory for one WhatsApp invoice/voice inventory exchange.
+model WhatsAppInventoryDraft {
+  id               String              @id @default(cuid())
+  businessId       String
+  /// Normalized sender phone (E.164), scopes the conversation.
+  phone            String
+  status           WhatsAppDraftStatus @default(COLLECTING)
+  sourceMessageSid String?
+  mediaUrl         String?
+  /// Array of draft line items: { productNameGuess, productId?, quantity, unit?, unitCost?, batchNumber?, expiryDate?, confidence }
+  extractedItems   Json
+  /// Field names still needed before this draft can move to AWAITING_CONFIRMATION.
+  missingFields    Json                @default("[]")
+  /// { nameGuess, supplierId?, isNew } — set once a supplier is matched or proposed.
+  supplierGuess    Json?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, phone, status])
+  @@map("whatsapp_inventory_drafts")
 }
 
 model AiPromptLog {

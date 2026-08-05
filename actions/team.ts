@@ -14,7 +14,12 @@ import {
 import { getAppUrl } from "@/lib/env";
 import { setActiveBusinessId } from "@/lib/active-business";
 import { inviteableRolesFor } from "@/lib/team";
-import { teamInviteSchema, updateMemberRoleSchema } from "@/lib/validations";
+import { normalizeNigerianPhone } from "@/lib/phone";
+import {
+  teamInviteSchema,
+  updateMemberRoleSchema,
+  updateMyPhoneSchema,
+} from "@/lib/validations";
 
 const INVITE_TTL_DAYS = 7;
 
@@ -202,6 +207,46 @@ export async function removeTeamMember(userId: string) {
   } catch (error) {
     console.error("removeTeamMember failed:", error);
     return { error: "Could not remove team member" };
+  }
+}
+
+/**
+ * Self-service: lets the signed-in member set or clear the WhatsApp number
+ * used to authorize them in the inventory assistant. Each member manages
+ * their own number only — no one edits it on someone else's behalf.
+ */
+export async function updateMyPhone(formData: FormData) {
+  try {
+    const ctx = await requireSectionAccess("settings");
+
+    const parsed = updateMyPhoneSchema.safeParse({
+      phone: formData.get("phone"),
+    });
+
+    if (!parsed.success) {
+      return {
+        error: parsed.error.flatten().fieldErrors.phone?.[0] ?? "Invalid phone number",
+      };
+    }
+
+    const phone = parsed.data.phone ? normalizeNigerianPhone(parsed.data.phone) : null;
+
+    await prisma.membership.update({
+      where: { userId_businessId: { userId: ctx.userId, businessId: ctx.businessId } },
+      data: { phone },
+    });
+
+    revalidatePath("/settings");
+    return { success: true, phone };
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return { error: "This number is already linked to another team member" };
+    }
+    console.error("updateMyPhone failed:", error);
+    return { error: "Could not update phone number" };
   }
 }
 

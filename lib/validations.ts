@@ -221,6 +221,8 @@ export const whatsappConfigSchema = z.object({
   autoReplyEnabled: z.boolean(),
   whatsappNumber: z.string().optional(),
   greetingMessage: z.string().max(500).optional(),
+  saleAlertsEnabled: z.boolean().optional(),
+  ownerAlertPhone: z.string().optional(),
 });
 
 export const teamInviteSchema = z.object({
@@ -252,6 +254,15 @@ export const supportTicketSchema = z.object({
 export const updateMemberRoleSchema = z.object({
   userId: z.string().min(1),
   role: z.enum(["MANAGER", "CASHIER", "STAFF"]),
+});
+
+export const updateMyPhoneSchema = z.object({
+  phone: z
+    .string()
+    .trim()
+    .regex(/^(\+?234|0)\d{9,10}$/, "Enter a valid Nigerian phone number")
+    .optional()
+    .or(z.literal("")),
 });
 
 export type BusinessInput = z.infer<typeof businessSchema>;

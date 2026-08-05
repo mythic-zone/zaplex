@@ -3,6 +3,7 @@ import { requireBusinessDataAccess } from "@/lib/api-access";
 import { prisma } from "@/lib/db";
 import { allocateReceiptNumber } from "@/lib/receipt-number";
 import { saleItemSchema } from "@/lib/validations";
+import { notifyOwnerOfSale } from "@/services/whatsapp";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -301,6 +302,12 @@ export async function POST(request: Request) {
 
         return newSale;
       });
+
+      notifyOwnerOfSale(ctx.businessId, {
+        total: Number(sale.total),
+        paymentMethod: data.paymentMethod,
+        itemCount: data.items.length,
+      }).catch((err) => console.error("[notifyOwnerOfSale]", err));
 
       return NextResponse.json({
         ok: true,

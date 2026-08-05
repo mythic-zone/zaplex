@@ -1,7 +1,11 @@
 import OpenAI from "openai";
 import { prisma } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
-import { sendWhatsAppMessage, toWhatsAppAddress } from "@/services/twilio";
+import { sendWhatsAppMessage, toWhatsAppAddress, fetchTwilioMedia } from "@/services/twilio";
+import { normalizeNigerianPhone } from "@/lib/phone";
+import { resolveManagerFromWhatsApp, type ResolvedWhatsAppManager } from "@/lib/whatsapp-auth";
+import { uploadWhatsAppMedia } from "@/lib/whatsapp-media";
+import { handleManagerInventoryMessage } from "@/lib/ai/whatsapp-inventory/conversation";
 
 type WhatsAppProduct = {
   name: string;
@@ -18,7 +22,12 @@ export interface WhatsAppInbound {
   to: string;
   body: string;
   messageSid?: string;
+  mediaUrl?: string;
+  mediaContentType?: string;
 }
+
+const INVENTORY_COMMAND_RE =
+  /\b(add|stock|restock|received|bought|got|purchase[d]?)\b.{0,40}\b(pcs?|packs?|cartons?|units?|boxes?|bottles?|sachets?)\b/i;
 
 function generateBusinessCode(businessName: string): string {
   const prefix = businessName
@@ -310,6 +319,20 @@ export async function generateCustomerReply(
 }
 
 export async function processInboundWhatsApp(inbound: WhatsAppInbound) {
+  const manager = await resolveManagerFromWhatsApp(inbound.from);
+  if (manager) {
+    const phone = normalizeNigerianPhone(inbound.from);
+    const openDraft = await prisma.whatsAppInventoryDraft.findFirst({
+      where: { businessId: manager.businessId, phone, status: { in: ["COLLECTING", "AWAITING_CONFIRMATION"] } },
+      select: { id: true },
+    });
+    const looksLikeInventoryCommand = INVENTORY_COMMAND_RE.test(inbound.body);
+
+    if (inbound.mediaUrl || openDraft || looksLikeInventoryCommand) {
+      return processManagerInventoryMessage(manager, phone, inbound);
+    }
+  }
+
   const resolved = await resolveBusinessFromInbound(inbound);
   const customerPhone = inbound.from.replace(/^whatsapp:/i, "");
 
@@ -391,6 +414,87 @@ export async function processInboundWhatsApp(inbound: WhatsAppInbound) {
     error: sendResult.error,
     businessId: resolved.businessId,
   };
+}
+
+async function processManagerInventoryMessage(
+  manager: ResolvedWhatsAppManager,
+  phone: string,
+  inbound: WhatsAppInbound
+) {
+  const config = await prisma.whatsAppConfig.findUnique({ where: { businessId: manager.businessId } });
+
+  let media: { buffer: Buffer; contentType: string; storageUrl?: string | null } | undefined;
+  if (inbound.mediaUrl && inbound.mediaContentType) {
+    const fetched = await fetchTwilioMedia(inbound.mediaUrl);
+    if (fetched) {
+      const storageUrl = await uploadWhatsAppMedia(manager.businessId, fetched.buffer, fetched.contentType);
+      media = { buffer: fetched.buffer, contentType: fetched.contentType, storageUrl };
+    }
+  }
+
+  await prisma.whatsAppMessage.create({
+    data: {
+      businessId: manager.businessId,
+      direction: "INBOUND",
+      fromNumber: inbound.from,
+      toNumber: inbound.to,
+      body: inbound.body,
+      customerPhone: phone,
+      status: "RECEIVED",
+      mediaUrl: media?.storageUrl ?? undefined,
+      mediaType: inbound.mediaContentType,
+      intent: "manager_inventory",
+    },
+  });
+
+  const { reply } = await handleManagerInventoryMessage({
+    businessId: manager.businessId,
+    role: manager.role,
+    employeeId: manager.employeeId,
+    userId: manager.userId,
+    phone,
+    body: inbound.body,
+    media,
+    messageSid: inbound.messageSid,
+  });
+
+  const fromNumber = config?.twilioNumber ? toWhatsAppAddress(config.twilioNumber) : undefined;
+  const sendResult = await sendWhatsAppMessage(inbound.from, reply, fromNumber);
+
+  await prisma.whatsAppMessage.create({
+    data: {
+      businessId: manager.businessId,
+      direction: "OUTBOUND",
+      fromNumber: inbound.to,
+      toNumber: inbound.from,
+      body: reply,
+      customerPhone: phone,
+      aiResponse: reply,
+      status: sendResult.success ? "REPLIED" : "FAILED",
+      intent: "manager_inventory",
+    },
+  });
+
+  return { replied: sendResult.success, reply, error: sendResult.error, businessId: manager.businessId };
+}
+
+/**
+ * WhatsApp alert to the owner/manager when a POS sale completes. Fire-and-forget
+ * from the caller — mirrors the existing non-blocking pattern for inbound messages.
+ */
+export async function notifyOwnerOfSale(
+  businessId: string,
+  sale: { total: number; paymentMethod: string; itemCount: number }
+) {
+  const config = await prisma.whatsAppConfig.findUnique({ where: { businessId } });
+  if (!config?.saleAlertsEnabled || !config.ownerAlertPhone) return;
+
+  const business = await prisma.business.findUnique({ where: { id: businessId }, select: { currency: true } });
+  const amount = formatCurrency(sale.total, business?.currency ?? "NGN");
+  const body = `💰 Sale completed — ${amount} (${sale.itemCount} item${sale.itemCount === 1 ? "" : "s"}) via ${sale.paymentMethod}.`;
+
+  const fromNumber = config.twilioNumber ? toWhatsAppAddress(config.twilioNumber) : undefined;
+  await sendWhatsAppMessage(config.ownerAlertPhone, body, fromNumber);
 }
 
 export async function getWhatsAppMessages(

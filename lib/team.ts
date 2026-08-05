@@ -39,7 +39,11 @@ export async function getPendingInviteForEmail(email: string) {
 export async function getTeamMembers(businessId: string) {
   return prisma.membership.findMany({
     where: { businessId },
-    include: {
+    select: {
+      id: true,
+      role: true,
+      phone: true,
+      sectionOverrides: true,
       user: {
         select: {
           id: true,

@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { validateTwilioSignature } from "@/services/twilio";
 import { processInboundWhatsApp } from "@/services/whatsapp";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
-import { getAppUrl } from "@/lib/env";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
@@ -28,7 +27,9 @@ export async function POST(request: Request) {
     });
 
     const signature = request.headers.get("x-twilio-signature");
-    const url = `${getAppUrl()}/api/webhooks/whatsapp`;
+    const proto = request.headers.get("x-forwarded-proto") ?? "https";
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "localhost:3000";
+    const url = `${proto}://${host}/api/webhooks/whatsapp`;
 
     if (!validateTwilioSignature(url, params, signature)) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
@@ -38,13 +39,16 @@ export async function POST(request: Request) {
     const to = params.To ?? "";
     const body = params.Body ?? "";
     const messageSid = params.MessageSid;
+    const numMedia = Number.parseInt(params.NumMedia ?? "0", 10) || 0;
+    const mediaUrl = numMedia > 0 ? params.MediaUrl0 : undefined;
+    const mediaContentType = numMedia > 0 ? params.MediaContentType0 : undefined;
 
-    if (!from || !body) {
+    if (!from || (!body && !mediaUrl)) {
       return twimlResponse();
     }
 
     // Process async — reply via Twilio REST API (AI may take a few seconds)
-    processInboundWhatsApp({ from, to, body, messageSid }).catch((err) => {
+    processInboundWhatsApp({ from, to, body, messageSid, mediaUrl, mediaContentType }).catch((err) => {
       console.error("[WhatsApp webhook]", err);
     });
 

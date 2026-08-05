@@ -33,6 +33,8 @@ export async function updateWhatsAppConfig(formData: FormData) {
     autoReplyEnabled: formData.get("autoReplyEnabled") === "true",
     whatsappNumber: formData.get("whatsappNumber") || undefined,
     greetingMessage: formData.get("greetingMessage") || undefined,
+    saleAlertsEnabled: formData.get("saleAlertsEnabled") === "true",
+    ownerAlertPhone: formData.get("ownerAlertPhone") || undefined,
   });
 
   if (!parsed.success) {
@@ -48,6 +50,8 @@ export async function updateWhatsAppConfig(formData: FormData) {
       autoReplyEnabled: parsed.data.autoReplyEnabled,
       whatsappNumber: parsed.data.whatsappNumber,
       greetingMessage: parsed.data.greetingMessage,
+      saleAlertsEnabled: parsed.data.saleAlertsEnabled,
+      ownerAlertPhone: parsed.data.ownerAlertPhone,
       twilioNumber:
         process.env.TWILIO_WHATSAPP_NUMBER?.replace(/^whatsapp:/i, "") ?? undefined,
     },

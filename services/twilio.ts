@@ -70,3 +70,26 @@ export function isTwilioConfigured(): boolean {
       process.env.TWILIO_WHATSAPP_NUMBER
   );
 }
+
+/**
+ * Downloads a Twilio media attachment (MediaUrl0, etc). Twilio media URLs
+ * require the same Basic Auth as the REST API — an unauthenticated fetch
+ * returns a 401 HTML page, not the file.
+ */
+export async function fetchTwilioMedia(
+  mediaUrl: string
+): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!accountSid || !authToken) return null;
+
+  const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+  const response = await fetch(mediaUrl, {
+    headers: { Authorization: `Basic ${auth}` },
+  });
+  if (!response.ok) return null;
+
+  const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+  const arrayBuffer = await response.arrayBuffer();
+  return { buffer: Buffer.from(arrayBuffer), contentType };
+}
