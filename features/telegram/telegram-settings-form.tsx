@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { updateWhatsAppConfig } from "@/actions/whatsapp";
+import { updateTelegramConfig } from "@/actions/telegram";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,17 +9,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Copy, Check } from "lucide-react";
 import type { WhatsAppConfig } from "@prisma/client";
 
-interface WhatsAppSettingsFormProps {
+interface TelegramSettingsFormProps {
   config: WhatsAppConfig;
   webhookUrl: string;
-  twilioConfigured: boolean;
+  telegramConfigured: boolean;
 }
 
-export function WhatsAppSettingsForm({
+export function TelegramSettingsForm({
   config,
   webhookUrl,
-  twilioConfigured,
-}: WhatsAppSettingsFormProps) {
+  telegramConfigured,
+}: TelegramSettingsFormProps) {
   const [isPending, startTransition] = useTransition();
   const [copied, setCopied] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(config.isEnabled);
@@ -39,20 +39,20 @@ export function WhatsAppSettingsForm({
     formData.set("autoReplyEnabled", String(autoReply));
     formData.set("saleAlertsEnabled", String(saleAlerts));
     startTransition(async () => {
-      await updateWhatsAppConfig(formData);
+      await updateTelegramConfig(formData);
     });
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">WhatsApp AI Settings</CardTitle>
+        <CardTitle className="text-base">Telegram AI Settings</CardTitle>
       </CardHeader>
       <CardContent>
-        {!twilioConfigured && (
+        {!telegramConfigured && (
           <div className="mb-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-200">
-            Twilio is not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
-            and TWILIO_WHATSAPP_NUMBER to your .env file. You can still test with
+            Telegram bot is not configured. Add TELEGRAM_BOT_TOKEN and
+            TELEGRAM_WEBHOOK_SECRET to your .env file. You can still test with
             the simulator below.
           </div>
         )}
@@ -60,7 +60,7 @@ export function WhatsAppSettingsForm({
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="flex items-center justify-between rounded-xl surface-muted p-4">
             <div>
-              <p className="font-medium text-sm">Enable WhatsApp AI</p>
+              <p className="font-medium text-sm">Enable Telegram AI</p>
               <p className="text-xs text-muted-foreground">
                 Auto-reply to customer messages
               </p>
@@ -111,7 +111,8 @@ export function WhatsAppSettingsForm({
             <div>
               <p className="font-medium text-sm">Sale alerts</p>
               <p className="text-xs text-muted-foreground">
-                Get a WhatsApp message every time a POS sale completes
+                Get a Telegram message every time a POS sale completes (sent
+                to the owner&apos;s linked Telegram ID from Settings → Team)
               </p>
             </div>
             <button
@@ -129,30 +130,6 @@ export function WhatsAppSettingsForm({
                 }`}
               />
             </button>
-          </div>
-
-          {saleAlerts && (
-            <div className="space-y-2">
-              <Label htmlFor="ownerAlertPhone">Send sale alerts to</Label>
-              <Input
-                id="ownerAlertPhone"
-                name="ownerAlertPhone"
-                type="tel"
-                defaultValue={config.ownerAlertPhone ?? ""}
-                placeholder="+234 800 000 0000"
-              />
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label htmlFor="whatsappNumber">Your shop WhatsApp number</Label>
-            <Input
-              id="whatsappNumber"
-              name="whatsappNumber"
-              type="tel"
-              defaultValue={config.whatsappNumber ?? ""}
-              placeholder="+234 800 000 0000"
-            />
           </div>
 
           <div className="space-y-2">
@@ -198,7 +175,7 @@ export function WhatsAppSettingsForm({
 
           <div className="rounded-xl surface-muted p-4 space-y-2">
             <p className="text-xs font-semibold text-muted-foreground uppercase">
-              Twilio Webhook URL
+              Telegram Webhook URL
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded-lg bg-card px-3 py-2 text-xs font-mono break-all border">
@@ -218,8 +195,8 @@ export function WhatsAppSettingsForm({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Paste this in Twilio Console → Messaging → WhatsApp Sandbox →
-              &quot;When a message comes in&quot;
+              Registered with Telegram via the bot&apos;s setWebhook call —
+              this is shown for reference, not something to paste manually.
             </p>
           </div>
 

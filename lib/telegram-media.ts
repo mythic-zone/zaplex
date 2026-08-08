@@ -1,6 +1,6 @@
 import { createServerSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 
-const BUCKET = "whatsapp-media";
+const BUCKET = "telegram-media";
 
 function extensionFor(contentType: string): string {
   const map: Record<string, string> = {
@@ -10,17 +10,16 @@ function extensionFor(contentType: string): string {
     "audio/ogg": "ogg",
     "audio/opus": "opus",
     "audio/mpeg": "mp3",
-    "audio/amr": "amr",
   };
   return map[contentType] ?? contentType.split("/")[1] ?? "bin";
 }
 
 /**
- * Stores an inbound WhatsApp attachment for audit purposes. Best-effort only
+ * Stores an inbound Telegram attachment for audit purposes. Best-effort only
  * — the AI analysis runs directly off the in-memory buffer, so a storage
  * failure here shouldn't block the conversation.
  */
-export async function uploadWhatsAppMedia(
+export async function uploadTelegramMedia(
   businessId: string,
   buffer: Buffer,
   contentType: string
@@ -45,13 +44,13 @@ export async function uploadWhatsAppMedia(
     }
 
     if (error) {
-      console.error("[whatsapp-media] upload failed:", error.message);
+      console.error("[telegram-media] upload failed:", error.message);
       return null;
     }
 
     return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
   } catch (err) {
-    console.error("[whatsapp-media] upload error:", err);
+    console.error("[telegram-media] upload error:", err);
     return null;
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { simulateInboundMessage, sendTestWhatsAppMessage } from "@/actions/whatsapp";
+import { simulateInboundMessage, sendTestTelegramMessage } from "@/actions/telegram";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,14 +14,14 @@ const QUICK_TESTS = [
   "What are your opening hours?",
 ];
 
-interface WhatsAppSimulatorProps {
-  twilioConfigured: boolean;
+interface TelegramSimulatorProps {
+  telegramConfigured: boolean;
 }
 
-export function WhatsAppSimulator({ twilioConfigured }: WhatsAppSimulatorProps) {
+export function TelegramSimulator({ telegramConfigured }: TelegramSimulatorProps) {
   const [message, setMessage] = useState("");
   const [reply, setReply] = useState<string | null>(null);
-  const [testPhone, setTestPhone] = useState("");
+  const [testChatId, setTestChatId] = useState("");
   const [isPending, startTransition] = useTransition();
 
   function runSimulation(text: string) {
@@ -34,13 +34,13 @@ export function WhatsAppSimulator({ twilioConfigured }: WhatsAppSimulatorProps) 
   }
 
   function sendLiveTest() {
-    if (!testPhone) return;
+    if (!testChatId) return;
     startTransition(async () => {
-      const result = await sendTestWhatsAppMessage(testPhone);
+      const result = await sendTestTelegramMessage(testChatId);
       if (result.error) {
         setReply(`Error: ${result.error}`);
       } else {
-        setReply("✅ Test message sent to your phone!");
+        setReply("✅ Test message sent to your Telegram chat!");
       }
     });
   }
@@ -50,7 +50,7 @@ export function WhatsAppSimulator({ twilioConfigured }: WhatsAppSimulatorProps) 
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <FlaskConical className="h-5 w-5 text-biz-emerald" />
-          Test WhatsApp AI
+          Test Telegram AI
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -99,29 +99,30 @@ export function WhatsAppSimulator({ twilioConfigured }: WhatsAppSimulatorProps) 
           </div>
         )}
 
-        {twilioConfigured && (
+        {telegramConfigured && (
           <div className="border-t pt-4 space-y-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase">
-              Send live test (Twilio)
+              Send live test (Telegram)
             </p>
             <div className="flex gap-2">
               <Input
-                value={testPhone}
-                onChange={(e) => setTestPhone(e.target.value)}
-                placeholder="+234 800 000 0000"
-                type="tel"
+                value={testChatId}
+                onChange={(e) => setTestChatId(e.target.value)}
+                placeholder="Your Telegram chat ID"
+                type="text"
+                inputMode="numeric"
               />
               <Button
                 type="button"
                 variant="outline"
                 onClick={sendLiveTest}
-                disabled={isPending || !testPhone}
+                disabled={isPending || !testChatId}
               >
                 Send Test
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              For Twilio Sandbox, recipient must have joined your sandbox first.
+              Message the bot and send /start to get your chat ID first.
             </p>
           </div>
         )}

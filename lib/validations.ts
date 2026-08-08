@@ -256,11 +256,11 @@ export const updateMemberRoleSchema = z.object({
   role: z.enum(["MANAGER", "CASHIER", "STAFF"]),
 });
 
-export const updateMyPhoneSchema = z.object({
-  phone: z
+export const updateMyTelegramIdSchema = z.object({
+  telegramId: z
     .string()
     .trim()
-    .regex(/^(\+?234|0)\d{9,10}$/, "Enter a valid Nigerian phone number")
+    .regex(/^\d{5,15}$/, "Enter a valid Telegram ID (numbers only)")
     .optional()
     .or(z.literal("")),
 });

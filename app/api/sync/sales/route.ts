@@ -3,7 +3,7 @@ import { requireBusinessDataAccess } from "@/lib/api-access";
 import { prisma } from "@/lib/db";
 import { allocateReceiptNumber } from "@/lib/receipt-number";
 import { saleItemSchema } from "@/lib/validations";
-import { notifyOwnerOfSale } from "@/services/whatsapp";
+import { notifyOwnerOfSale } from "@/services/telegram-bot";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";

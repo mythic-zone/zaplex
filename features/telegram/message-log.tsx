@@ -22,7 +22,7 @@ export function MessageLog({ messages }: MessageLogProps) {
       <CardContent>
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
-            No messages yet. Enable WhatsApp AI and customers can start asking
+            No messages yet. Enable Telegram AI and customers can start asking
             about products.
           </p>
         ) : (

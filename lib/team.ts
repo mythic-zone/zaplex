@@ -43,6 +43,7 @@ export async function getTeamMembers(businessId: string) {
       id: true,
       role: true,
       phone: true,
+      telegramId: true,
       sectionOverrides: true,
       user: {
         select: {

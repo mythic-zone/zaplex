@@ -16,7 +16,7 @@ import {
 } from "@/lib/product-images";
 import { Role, Prisma } from "@prisma/client";
 import { abandonEmptyShellShopsForUser } from "@/lib/empty-shop";
-import { notifyOwnerOfSale } from "@/services/whatsapp";
+import { notifyOwnerOfSale } from "@/services/telegram-bot";
 
 export async function createBusiness(formData: FormData) {
   try {

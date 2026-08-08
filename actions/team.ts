@@ -14,11 +14,10 @@ import {
 import { getAppUrl } from "@/lib/env";
 import { setActiveBusinessId } from "@/lib/active-business";
 import { inviteableRolesFor } from "@/lib/team";
-import { normalizeNigerianPhone } from "@/lib/phone";
 import {
   teamInviteSchema,
   updateMemberRoleSchema,
-  updateMyPhoneSchema,
+  updateMyTelegramIdSchema,
 } from "@/lib/validations";
 
 const INVITE_TTL_DAYS = 7;
@@ -211,42 +210,42 @@ export async function removeTeamMember(userId: string) {
 }
 
 /**
- * Self-service: lets the signed-in member set or clear the WhatsApp number
- * used to authorize them in the inventory assistant. Each member manages
- * their own number only — no one edits it on someone else's behalf.
+ * Self-service: lets the signed-in member set or clear the Telegram ID used
+ * to authorize them in the inventory assistant. Each member manages their
+ * own ID only — no one edits it on someone else's behalf.
  */
-export async function updateMyPhone(formData: FormData) {
+export async function updateMyTelegramId(formData: FormData) {
   try {
     const ctx = await requireSectionAccess("settings");
 
-    const parsed = updateMyPhoneSchema.safeParse({
-      phone: formData.get("phone"),
+    const parsed = updateMyTelegramIdSchema.safeParse({
+      telegramId: formData.get("telegramId"),
     });
 
     if (!parsed.success) {
       return {
-        error: parsed.error.flatten().fieldErrors.phone?.[0] ?? "Invalid phone number",
+        error: parsed.error.flatten().fieldErrors.telegramId?.[0] ?? "Invalid Telegram ID",
       };
     }
 
-    const phone = parsed.data.phone ? normalizeNigerianPhone(parsed.data.phone) : null;
+    const telegramId = parsed.data.telegramId || null;
 
     await prisma.membership.update({
       where: { userId_businessId: { userId: ctx.userId, businessId: ctx.businessId } },
-      data: { phone },
+      data: { telegramId },
     });
 
     revalidatePath("/settings");
-    return { success: true, phone };
+    return { success: true, telegramId };
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      return { error: "This number is already linked to another team member" };
+      return { error: "This Telegram ID is already linked to another team member" };
     }
-    console.error("updateMyPhone failed:", error);
-    return { error: "Could not update phone number" };
+    console.error("updateMyTelegramId failed:", error);
+    return { error: "Could not update Telegram ID" };
   }
 }
 

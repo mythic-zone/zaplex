@@ -1,13 +1,12 @@
 import OpenAI from "openai";
 import { prisma } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
-import { sendWhatsAppMessage, toWhatsAppAddress, fetchTwilioMedia } from "@/services/twilio";
-import { normalizeNigerianPhone } from "@/lib/phone";
-import { resolveManagerFromWhatsApp, type ResolvedWhatsAppManager } from "@/lib/whatsapp-auth";
-import { uploadWhatsAppMedia } from "@/lib/whatsapp-media";
+import { sendTelegramMessage, fetchTelegramFile } from "@/services/telegram";
+import { resolveManagerFromTelegram, type ResolvedTelegramManager } from "@/lib/telegram-auth";
+import { uploadTelegramMedia } from "@/lib/telegram-media";
 import { handleManagerInventoryMessage } from "@/lib/ai/whatsapp-inventory/conversation";
 
-type WhatsAppProduct = {
+type ShopProduct = {
   name: string;
   sellingPrice: { toString(): string };
   quantity: number;
@@ -17,12 +16,12 @@ const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 
-export interface WhatsAppInbound {
+export interface TelegramInbound {
+  /** Telegram chat id, as a string — the stable identity for this conversation. */
   from: string;
-  to: string;
   body: string;
-  messageSid?: string;
-  mediaUrl?: string;
+  messageId?: string;
+  mediaFileId?: string;
   mediaContentType?: string;
 }
 
@@ -66,32 +65,22 @@ export async function getOrCreateWhatsAppConfig(businessId: string) {
       businessId,
       businessCode: code,
       greetingMessage: `Hello! Welcome to ${business.name}. Ask us about products, prices, or opening hours. Example: "Do you have Paracetamol?"`,
-      twilioNumber: process.env.TWILIO_WHATSAPP_NUMBER?.replace(/^whatsapp:/i, ""),
     },
   });
 }
 
+/**
+ * Routes an inbound customer message to a business. Unlike the old WhatsApp
+ * flow, there is only one Telegram bot for the whole platform (no per-shop
+ * number) and Telegram chat ids aren't phone numbers — so this can no longer
+ * route by "which number was this sent to" or by matching digits against a
+ * stored customer phone (a chat id could coincidentally collide with an
+ * unrelated customer's phone digits). Routing is business-code prefix, or a
+ * single-tenant fallback.
+ */
 export async function resolveBusinessFromInbound(
-  inbound: WhatsAppInbound
+  inbound: TelegramInbound
 ): Promise<{ businessId: string; cleanedBody: string } | null> {
-  const toNormalized = inbound.to.replace(/^whatsapp:/i, "");
-
-  // Route by Twilio "To" number mapped to business
-  const byTwilio = await prisma.whatsAppConfig.findFirst({
-    where: {
-      isEnabled: true,
-      OR: [
-        { twilioNumber: toNormalized },
-        { twilioNumber: inbound.to },
-        { twilioNumber: `whatsapp:${toNormalized}` },
-      ],
-    },
-  });
-  if (byTwilio) {
-    return { businessId: byTwilio.businessId, cleanedBody: inbound.body.trim() };
-  }
-
-  // Route by business code prefix: #ABCD1234 message or ABCD1234: message
   const codeMatch = inbound.body.match(/^[#]?([A-Z]{4}[A-Z0-9]{4})[:\s-]+(.+)$/i);
   if (codeMatch) {
     const config = await prisma.whatsAppConfig.findFirst({
@@ -102,22 +91,6 @@ export async function resolveBusinessFromInbound(
     }
   }
 
-  // Route by known customer phone
-  const customerPhone = inbound.from.replace(/^whatsapp:/i, "");
-  const customer = await prisma.customer.findFirst({
-    where: { phone: { contains: customerPhone.slice(-10) } },
-    orderBy: { updatedAt: "desc" },
-  });
-  if (customer) {
-    const config = await prisma.whatsAppConfig.findFirst({
-      where: { businessId: customer.businessId, isEnabled: true },
-    });
-    if (config) {
-      return { businessId: customer.businessId, cleanedBody: inbound.body.trim() };
-    }
-  }
-
-  // Single-tenant fallback: only one enabled business
   const enabledConfigs = await prisma.whatsAppConfig.findMany({
     where: { isEnabled: true },
     take: 2,
@@ -132,7 +105,7 @@ export async function resolveBusinessFromInbound(
   return null;
 }
 
-function searchProducts(products: WhatsAppProduct[], query: string): WhatsAppProduct[] {
+function searchProducts(products: ShopProduct[], query: string): ShopProduct[] {
   const terms = query
     .toLowerCase()
     .replace(/do you have|is there|any|available|in stock|price of|how much/gi, "")
@@ -151,7 +124,7 @@ function searchProducts(products: WhatsAppProduct[], query: string): WhatsAppPro
 }
 
 function formatProductReply(
-  products: WhatsAppProduct[],
+  products: ShopProduct[],
   currency: string,
   businessName: string
 ): string {
@@ -172,25 +145,14 @@ function formatProductReply(
 }
 
 function formatHoursReply(businessName: string): string {
-  return `${businessName} is open Mon–Sat, 8am–8pm. Sundays 10am–4pm. Visit us or order via WhatsApp!`;
-}
-
-function formatDebtReply(
-  customerName: string,
-  debt: number,
-  currency: string
-): string {
-  if (debt <= 0) {
-    return `Hi ${customerName}! You have no outstanding balance. Thank you for your patronage! 🙏`;
-  }
-  return `Hi ${customerName}, your outstanding balance is ${formatCurrency(debt, currency)}. Please make payment at your earliest convenience. Thank you!`;
+  return `${businessName} is open Mon–Sat, 8am–8pm. Sundays 10am–4pm. Visit us or order via Telegram!`;
 }
 
 async function generateAIReply(
   businessId: string,
   message: string,
   businessName: string,
-  products: WhatsAppProduct[],
+  products: ShopProduct[],
   currency: string
 ): Promise<string | null> {
   if (!openai) return null;
@@ -215,7 +177,7 @@ async function generateAIReply(
       messages: [
         {
           role: "system",
-          content: `You are a WhatsApp shop assistant for "${businessName}" in Nigeria. Answer customer questions briefly (under 300 chars when possible). Use ₦ for prices.
+          content: `You are a Telegram shop assistant for "${businessName}" in Nigeria. Answer customer questions briefly (under 300 chars when possible). Use ₦ for prices.
 
 Available products:
 ${productList || "No products loaded"}
@@ -223,7 +185,7 @@ ${productList || "No products loaded"}
 Rules:
 - If asking about stock, check the product list
 - Be friendly and professional
-- Use WhatsApp formatting (*bold* for product names)
+- Use Telegram formatting (*bold* for product names)
 - If unsure, ask them to visit the shop`,
         },
         { role: "user", content: message },
@@ -239,8 +201,7 @@ Rules:
 
 export async function generateCustomerReply(
   businessId: string,
-  message: string,
-  customerPhone?: string
+  message: string
 ): Promise<string> {
   const [business, products, config] = await Promise.all([
     prisma.business.findUnique({ where: { id: businessId } }),
@@ -274,24 +235,6 @@ export async function generateCustomerReply(
     return formatHoursReply(business.name);
   }
 
-  // Debt / balance check for known customers
-  if (customerPhone && /owe|debt|balance|credit|pay/i.test(lower)) {
-    const phone = customerPhone.replace(/^whatsapp:/i, "");
-    const customer = await prisma.customer.findFirst({
-      where: {
-        businessId,
-        phone: { contains: phone.slice(-10) },
-      },
-    });
-    if (customer) {
-      return formatDebtReply(
-        customer.name,
-        Number(customer.debt),
-        business.currency
-      );
-    }
-  }
-
   // Stock / product queries
   if (
     /have|stock|available|price|cost|how much|do you sell|paracetamol|product/i.test(
@@ -318,23 +261,22 @@ export async function generateCustomerReply(
   return `Thanks for messaging ${business.name}! Ask about product availability (e.g. "Do you have Coke?") or visit us today.`;
 }
 
-export async function processInboundWhatsApp(inbound: WhatsAppInbound) {
-  const manager = await resolveManagerFromWhatsApp(inbound.from);
+export async function processInboundTelegram(inbound: TelegramInbound) {
+  const manager = await resolveManagerFromTelegram(inbound.from);
   if (manager) {
-    const phone = normalizeNigerianPhone(inbound.from);
+    const chatId = inbound.from;
     const openDraft = await prisma.whatsAppInventoryDraft.findFirst({
-      where: { businessId: manager.businessId, phone, status: { in: ["COLLECTING", "AWAITING_CONFIRMATION"] } },
+      where: { businessId: manager.businessId, phone: chatId, status: { in: ["COLLECTING", "AWAITING_CONFIRMATION"] } },
       select: { id: true },
     });
     const looksLikeInventoryCommand = INVENTORY_COMMAND_RE.test(inbound.body);
 
-    if (inbound.mediaUrl || openDraft || looksLikeInventoryCommand) {
-      return processManagerInventoryMessage(manager, phone, inbound);
+    if (inbound.mediaFileId || openDraft || looksLikeInventoryCommand) {
+      return processManagerInventoryMessage(manager, chatId, inbound);
     }
   }
 
   const resolved = await resolveBusinessFromInbound(inbound);
-  const customerPhone = inbound.from.replace(/^whatsapp:/i, "");
 
   if (!resolved) {
     // Log unattributed message - can't reply without business context
@@ -351,9 +293,9 @@ export async function processInboundWhatsApp(inbound: WhatsAppInbound) {
         businessId: resolved.businessId,
         direction: "INBOUND",
         fromNumber: inbound.from,
-        toNumber: inbound.to,
+        toNumber: "telegram",
         body: inbound.body,
-        customerPhone,
+        customerPhone: inbound.from,
         status: "RECEIVED",
       },
     });
@@ -365,37 +307,25 @@ export async function processInboundWhatsApp(inbound: WhatsAppInbound) {
       businessId: resolved.businessId,
       direction: "INBOUND",
       fromNumber: inbound.from,
-      toNumber: inbound.to,
+      toNumber: "telegram",
       body: inbound.body,
-      customerPhone,
+      customerPhone: inbound.from,
       status: "RECEIVED",
     },
   });
 
-  const reply = await generateCustomerReply(
-    resolved.businessId,
-    resolved.cleanedBody,
-    inbound.from
-  );
+  const reply = await generateCustomerReply(resolved.businessId, resolved.cleanedBody);
 
-  const fromNumber = config.twilioNumber
-    ? toWhatsAppAddress(config.twilioNumber)
-    : undefined;
-
-  const sendResult = await sendWhatsAppMessage(
-    inbound.from,
-    reply,
-    fromNumber
-  );
+  const sendResult = await sendTelegramMessage(inbound.from, reply);
 
   await prisma.whatsAppMessage.create({
     data: {
       businessId: resolved.businessId,
       direction: "OUTBOUND",
-      fromNumber: inbound.to,
+      fromNumber: "telegram",
       toNumber: inbound.from,
       body: reply,
-      customerPhone,
+      customerPhone: inbound.from,
       aiResponse: reply,
       status: sendResult.success ? "REPLIED" : "FAILED",
     },
@@ -417,17 +347,15 @@ export async function processInboundWhatsApp(inbound: WhatsAppInbound) {
 }
 
 async function processManagerInventoryMessage(
-  manager: ResolvedWhatsAppManager,
-  phone: string,
-  inbound: WhatsAppInbound
+  manager: ResolvedTelegramManager,
+  chatId: string,
+  inbound: TelegramInbound
 ) {
-  const config = await prisma.whatsAppConfig.findUnique({ where: { businessId: manager.businessId } });
-
   let media: { buffer: Buffer; contentType: string; storageUrl?: string | null } | undefined;
-  if (inbound.mediaUrl && inbound.mediaContentType) {
-    const fetched = await fetchTwilioMedia(inbound.mediaUrl);
+  if (inbound.mediaFileId && inbound.mediaContentType) {
+    const fetched = await fetchTelegramFile(inbound.mediaFileId);
     if (fetched) {
-      const storageUrl = await uploadWhatsAppMedia(manager.businessId, fetched.buffer, fetched.contentType);
+      const storageUrl = await uploadTelegramMedia(manager.businessId, fetched.buffer, fetched.contentType);
       media = { buffer: fetched.buffer, contentType: fetched.contentType, storageUrl };
     }
   }
@@ -436,10 +364,10 @@ async function processManagerInventoryMessage(
     data: {
       businessId: manager.businessId,
       direction: "INBOUND",
-      fromNumber: inbound.from,
-      toNumber: inbound.to,
+      fromNumber: chatId,
+      toNumber: "telegram",
       body: inbound.body,
-      customerPhone: phone,
+      customerPhone: chatId,
       status: "RECEIVED",
       mediaUrl: media?.storageUrl ?? undefined,
       mediaType: inbound.mediaContentType,
@@ -452,23 +380,22 @@ async function processManagerInventoryMessage(
     role: manager.role,
     employeeId: manager.employeeId,
     userId: manager.userId,
-    phone,
+    phone: chatId,
     body: inbound.body,
     media,
-    messageSid: inbound.messageSid,
+    messageSid: inbound.messageId,
   });
 
-  const fromNumber = config?.twilioNumber ? toWhatsAppAddress(config.twilioNumber) : undefined;
-  const sendResult = await sendWhatsAppMessage(inbound.from, reply, fromNumber);
+  const sendResult = await sendTelegramMessage(chatId, reply);
 
   await prisma.whatsAppMessage.create({
     data: {
       businessId: manager.businessId,
       direction: "OUTBOUND",
-      fromNumber: inbound.to,
-      toNumber: inbound.from,
+      fromNumber: "telegram",
+      toNumber: chatId,
       body: reply,
-      customerPhone: phone,
+      customerPhone: chatId,
       aiResponse: reply,
       status: sendResult.success ? "REPLIED" : "FAILED",
       intent: "manager_inventory",
@@ -479,28 +406,31 @@ async function processManagerInventoryMessage(
 }
 
 /**
- * WhatsApp alert to the owner/manager when a POS sale completes. Fire-and-forget
- * from the caller — mirrors the existing non-blocking pattern for inbound messages.
+ * Telegram alert to the owner when a POS sale completes. Sent to whichever
+ * Membership.telegramId is on file for the business's OWNER — the same link
+ * set in Settings -> Team, so there's no separate "alert number" to configure.
+ * Fire-and-forget from the caller.
  */
 export async function notifyOwnerOfSale(
   businessId: string,
   sale: { total: number; paymentMethod: string; itemCount: number }
 ) {
   const config = await prisma.whatsAppConfig.findUnique({ where: { businessId } });
-  if (!config?.saleAlertsEnabled || !config.ownerAlertPhone) return;
+  if (!config?.saleAlertsEnabled) return;
+
+  const owner = await prisma.membership.findFirst({
+    where: { businessId, role: "OWNER", telegramId: { not: null } },
+  });
+  if (!owner?.telegramId) return;
 
   const business = await prisma.business.findUnique({ where: { id: businessId }, select: { currency: true } });
   const amount = formatCurrency(sale.total, business?.currency ?? "NGN");
   const body = `💰 Sale completed — ${amount} (${sale.itemCount} item${sale.itemCount === 1 ? "" : "s"}) via ${sale.paymentMethod}.`;
 
-  const fromNumber = config.twilioNumber ? toWhatsAppAddress(config.twilioNumber) : undefined;
-  await sendWhatsAppMessage(config.ownerAlertPhone, body, fromNumber);
+  await sendTelegramMessage(owner.telegramId, body);
 }
 
-export async function getWhatsAppMessages(
-  businessId: string,
-  limit = 50
-) {
+export async function getWhatsAppMessages(businessId: string, limit = 50) {
   return prisma.whatsAppMessage.findMany({
     where: { businessId },
     orderBy: { createdAt: "desc" },
@@ -508,29 +438,17 @@ export async function getWhatsAppMessages(
   });
 }
 
-export async function sendManualWhatsAppReply(
-  businessId: string,
-  toPhone: string,
-  body: string
-) {
-  const config = await prisma.whatsAppConfig.findUnique({
-    where: { businessId },
-  });
-
-  const fromNumber = config?.twilioNumber
-    ? toWhatsAppAddress(config.twilioNumber)
-    : undefined;
-
-  const result = await sendWhatsAppMessage(toPhone, body, fromNumber);
+export async function sendManualTelegramReply(businessId: string, toChatId: string, body: string) {
+  const result = await sendTelegramMessage(toChatId, body);
 
   await prisma.whatsAppMessage.create({
     data: {
       businessId,
       direction: "OUTBOUND",
-      fromNumber: fromNumber ?? process.env.TWILIO_WHATSAPP_NUMBER ?? "",
-      toNumber: toWhatsAppAddress(toPhone),
+      fromNumber: "telegram",
+      toNumber: toChatId,
       body,
-      customerPhone: toPhone,
+      customerPhone: toChatId,
       status: result.success ? "REPLIED" : "FAILED",
     },
   });

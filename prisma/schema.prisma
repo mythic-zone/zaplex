@@ -219,6 +219,10 @@ model Membership {
   /// WhatsApp inventory assistant. Normalized E.164; unique so an inbound
   /// message resolves to exactly one business.
   phone             String?
+  /// Self-service Telegram user ID for this member, used to authorize the
+  /// Telegram inventory assistant. Unique so an inbound message resolves to
+  /// exactly one business.
+  telegramId        String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -227,6 +231,7 @@ model Membership {
 
   @@unique([userId, businessId])
   @@unique([phone])
+  @@unique([telegramId])
   @@index([businessId])
   @@map("memberships")
 }
