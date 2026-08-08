@@ -3,6 +3,8 @@ import { validateTelegramSecret } from "@/services/telegram";
 import { processInboundTelegram } from "@/services/telegram-bot";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
+export const maxDuration = 60;
+
 interface TelegramPhotoSize {
   file_id: string;
   width: number;
