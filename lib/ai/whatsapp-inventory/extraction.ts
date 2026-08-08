@@ -92,7 +92,10 @@ export async function extractInvoiceFromImage(
   const limitMessage = await guardBusinessAiUsage(businessId);
   if (limitMessage) return { ok: false, data: null, limitMessage };
 
-  if (!isGeminiConfigured()) return { ok: false, data: null };
+  if (!isGeminiConfigured()) {
+    console.error("[extractInvoice] Gemini not configured");
+    return { ok: false, data: null, limitMessage: "AI is not configured. Please add GEMINI_API_KEY." };
+  }
 
   const raw = await geminiAnalyzeMedia({
     systemPrompt: INVOICE_SYSTEM_PROMPT,
@@ -100,13 +103,22 @@ export async function extractInvoiceFromImage(
     mediaBase64,
     mimeType,
   });
-  if (!raw) return { ok: false, data: null };
+  if (!raw) {
+    console.error("[extractInvoice] Gemini returned null — API call failed");
+    return { ok: false, data: null };
+  }
 
   const json = extractJsonObject(raw);
-  if (!json) return { ok: false, data: null, parseError: true };
+  if (!json) {
+    console.error("[extractInvoice] Could not parse JSON from Gemini response:", raw.slice(0, 300));
+    return { ok: false, data: null, parseError: true };
+  }
 
   const parsed = invoiceExtractionSchema.safeParse(json);
-  if (!parsed.success) return { ok: false, data: null, parseError: true };
+  if (!parsed.success) {
+    console.error("[extractInvoice] Zod validation failed:", parsed.error.issues);
+    return { ok: false, data: null, parseError: true };
+  }
 
   return { ok: true, data: parsed.data };
 }
@@ -137,7 +149,10 @@ export async function parseVoiceInventoryCommand(
   const limitMessage = await guardBusinessAiUsage(businessId);
   if (limitMessage) return { ok: false, data: null, limitMessage };
 
-  if (!isGeminiConfigured()) return { ok: false, data: null };
+  if (!isGeminiConfigured()) {
+    console.error("[parseVoice] Gemini not configured");
+    return { ok: false, data: null, limitMessage: "AI is not configured. Please add GEMINI_API_KEY." };
+  }
 
   const prompt = draftContext
     ? `Current draft context (what we already know, may be incomplete): ${draftContext}\n\nTranscribe the voice note and extract the JSON per the schema in your instructions.`
@@ -149,13 +164,22 @@ export async function parseVoiceInventoryCommand(
     mediaBase64,
     mimeType,
   });
-  if (!raw) return { ok: false, data: null };
+  if (!raw) {
+    console.error("[parseVoice] Gemini returned null — API call failed");
+    return { ok: false, data: null };
+  }
 
   const json = extractJsonObject(raw);
-  if (!json) return { ok: false, data: null, parseError: true };
+  if (!json) {
+    console.error("[parseVoice] Could not parse JSON from response:", raw.slice(0, 300));
+    return { ok: false, data: null, parseError: true };
+  }
 
   const parsed = inventoryReplySchema.safeParse(json);
-  if (!parsed.success) return { ok: false, data: null, parseError: true };
+  if (!parsed.success) {
+    console.error("[parseVoice] Zod validation failed:", parsed.error.issues);
+    return { ok: false, data: null, parseError: true };
+  }
 
   return { ok: true, data: parsed.data };
 }

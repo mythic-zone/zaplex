@@ -19,7 +19,19 @@ interface TelegramMessage {
 }
 
 interface TelegramUpdate {
+  update_id?: number;
   message?: TelegramMessage;
+}
+
+const recentlyProcessed = new Set<string>();
+const MAX_PROCESSED = 500;
+
+function markProcessed(key: string) {
+  recentlyProcessed.add(key);
+  if (recentlyProcessed.size > MAX_PROCESSED) {
+    const first = recentlyProcessed.values().next().value;
+    if (first) recentlyProcessed.delete(first);
+  }
 }
 
 export async function POST(request: Request) {
@@ -41,13 +53,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    const dedupeKey = `${message.chat.id}:${message.message_id}`;
+    if (recentlyProcessed.has(dedupeKey)) {
+      return NextResponse.json({ ok: true });
+    }
+    markProcessed(dedupeKey);
+
     const from = String(message.chat.id);
     const body = message.text ?? message.caption ?? "";
 
     let mediaFileId: string | undefined;
     let mediaContentType: string | undefined;
     if (message.photo && message.photo.length > 0) {
-      // Largest size is last in the array.
       mediaFileId = message.photo[message.photo.length - 1].file_id;
       mediaContentType = "image/jpeg";
     } else if (message.voice) {
@@ -66,6 +83,8 @@ export async function POST(request: Request) {
       mediaFileId,
       mediaContentType,
     });
+
+    return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[Telegram webhook error]", err);
     return NextResponse.json({ ok: true });

@@ -266,9 +266,11 @@ export async function handleManagerInventoryMessage(
     const extraction = await extractInvoiceFromImage(businessId, base64, media.contentType);
     if (extraction.limitMessage) return { reply: extraction.limitMessage };
     if (!extraction.ok || !extraction.data) {
+      const hint = extraction.parseError
+        ? "I read the image but couldn't extract product lines from it."
+        : "I couldn't read that invoice — the AI call may have failed.";
       return {
-        reply:
-          "I couldn't read that invoice clearly. Could you send a clearer, well-lit photo of it?",
+        reply: `${hint} Try sending a clearer, well-lit photo, or type the items instead — e.g. "I got 50 packs of Paracetamol at ₦150 each".`,
       };
     }
 
@@ -286,7 +288,10 @@ export async function handleManagerInventoryMessage(
     const parsed = await parseVoiceInventoryCommand(businessId, base64, media.contentType, draftContext);
     if (parsed.limitMessage) return { reply: parsed.limitMessage };
     if (!parsed.ok || !parsed.data) {
-      return { reply: "Sorry, I couldn't understand that voice note. Could you try again, or type it instead?" };
+      const hint = parsed.parseError
+        ? "I heard the voice note but couldn't extract inventory details."
+        : "Sorry, I couldn't process that voice note — the AI call may have failed.";
+      return { reply: `${hint} Try again, or type it instead — e.g. "I got 50 packs of Panadol at ₦150 each".` };
     }
 
     return handleParsedReply(businessId, phone, openDraft, parsed.data, messageSid, mediaUrl, employeeId, userId);
