@@ -5,6 +5,7 @@ import { sendTelegramMessage, fetchTelegramFile } from "@/services/telegram";
 import { resolveManagerFromTelegram, type ResolvedTelegramManager } from "@/lib/telegram-auth";
 import { uploadTelegramMedia } from "@/lib/telegram-media";
 import { handleManagerInventoryMessage } from "@/lib/ai/whatsapp-inventory/conversation";
+import { handleManagerCommand } from "@/services/telegram-manager-commands";
 
 type ShopProduct = {
   name: string;
@@ -26,7 +27,7 @@ export interface TelegramInbound {
 }
 
 const INVENTORY_COMMAND_RE =
-  /\b(add|stock|restock|received|bought|got|purchase[d]?)\b.{0,40}\b(pcs?|packs?|cartons?|units?|boxes?|bottles?|sachets?)\b/i;
+  /\b(add|stock|restock|received|bought|got|purchase[d]?)\b.{0,60}(\b(pcs?|packs?|cartons?|units?|boxes?|bottles?|sachets?)\b|\b\d+\b)/i;
 
 function generateBusinessCode(businessName: string): string {
   const prefix = businessName
@@ -273,6 +274,12 @@ export async function processInboundTelegram(inbound: TelegramInbound) {
 
     if (inbound.mediaFileId || openDraft || looksLikeInventoryCommand) {
       return processManagerInventoryMessage(manager, chatId, inbound);
+    }
+
+    const cmd = await handleManagerCommand(manager, chatId, inbound.body);
+    if (cmd.handled && cmd.reply) {
+      const sendResult = await sendTelegramMessage(chatId, cmd.reply);
+      return { replied: sendResult.success, reply: cmd.reply, error: sendResult.error, businessId: manager.businessId };
     }
   }
 

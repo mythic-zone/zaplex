@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { allocateReceiptNumber } from "@/lib/receipt-number";
 import { saleItemSchema } from "@/lib/validations";
 import { notifyOwnerOfSale } from "@/services/telegram-bot";
+import { checkAndAlertLowStock } from "@/services/telegram-manager-commands";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -308,6 +309,11 @@ export async function POST(request: Request) {
         paymentMethod: data.paymentMethod,
         itemCount: data.items.length,
       }).catch((err) => console.error("[notifyOwnerOfSale]", err));
+
+      const soldProductIds = data.items.map((i: { productId: string }) => i.productId);
+      checkAndAlertLowStock(ctx.businessId, soldProductIds).catch((err) =>
+        console.error("[checkAndAlertLowStock]", err)
+      );
 
       return NextResponse.json({
         ok: true,

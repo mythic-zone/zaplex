@@ -17,6 +17,7 @@ import {
 import { Role, Prisma } from "@prisma/client";
 import { abandonEmptyShellShopsForUser } from "@/lib/empty-shop";
 import { notifyOwnerOfSale } from "@/services/telegram-bot";
+import { checkAndAlertLowStock } from "@/services/telegram-manager-commands";
 
 export async function createBusiness(formData: FormData) {
   try {
@@ -779,6 +780,11 @@ export async function createSale(data: {
       paymentMethod: sale.paymentMethod,
       itemCount: sale.items.length,
     }).catch((err) => console.error("[notifyOwnerOfSale]", err));
+
+    const soldProductIds = sale.items.map((i: { productId: string }) => i.productId);
+    checkAndAlertLowStock(ctx.businessId, soldProductIds).catch((err) =>
+      console.error("[checkAndAlertLowStock]", err)
+    );
 
     revalidatePath("/sales");
     revalidatePath("/sales/history");
