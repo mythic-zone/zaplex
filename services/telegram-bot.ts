@@ -362,8 +362,9 @@ async function processManagerInventoryMessage(
   if (inbound.mediaFileId && inbound.mediaContentType) {
     const fetched = await fetchTelegramFile(inbound.mediaFileId);
     if (fetched) {
-      const storageUrl = await uploadTelegramMedia(manager.businessId, fetched.buffer, fetched.contentType);
-      media = { buffer: fetched.buffer, contentType: fetched.contentType, storageUrl };
+      const contentType = inbound.mediaContentType || fetched.contentType;
+      const storageUrl = await uploadTelegramMedia(manager.businessId, fetched.buffer, contentType);
+      media = { buffer: fetched.buffer, contentType, storageUrl };
     }
   }
 

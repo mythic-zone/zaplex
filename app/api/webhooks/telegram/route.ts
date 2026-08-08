@@ -59,18 +59,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // Process async — reply via Telegram Bot API (AI may take a few seconds)
-    processInboundTelegram({
+    await processInboundTelegram({
       from,
       body,
       messageId: String(message.message_id),
       mediaFileId,
       mediaContentType,
-    }).catch((err) => {
-      console.error("[Telegram webhook]", err);
     });
-
-    return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[Telegram webhook error]", err);
     return NextResponse.json({ ok: true });
